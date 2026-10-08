@@ -7,6 +7,10 @@ import { createMasterResumeController } from './controllers/masterResume';
 import { createFileResumeRepository } from './repo/resume.repo';
 import { createMasterResumeRouter } from './routes/master-resume';
 import { createMasterResumeService } from './services/masterResume';
+import { createTailorService } from './services/tailor-service';
+import { createGroqService } from './services/groq-service';
+import { createTailorController } from './controllers/tailor-controller';
+import { createTailorRouter } from './routes/tailor-routes';
 
 export function createApp() {
   const app = express();
@@ -22,14 +26,21 @@ export function createApp() {
   const resumeRepo = createFileResumeRepository(
     path.resolve(process.cwd(), 'data/master-resume.json')
   );
-  const masterResumeController = createMasterResumeController(
-    createMasterResumeService(resumeRepo)
-  );
+  const masterResumeService = createMasterResumeService(resumeRepo);
+  const tailorService = createTailorService({
+    masterResume: masterResumeService,
+    llm: createGroqService(),
+  });
 
   app.use(
     '/api/master-resume',
-    createMasterResumeRouter(masterResumeController)
+    createMasterResumeRouter(createMasterResumeController(masterResumeService))
   );
+  app.use(
+    '/api/tailor',
+    createTailorRouter(createTailorController(tailorService))
+  );
+
   app.use(notFound);
   app.use(errorHandler);
 

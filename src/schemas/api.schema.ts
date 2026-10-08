@@ -7,10 +7,12 @@ export const ParseRequestSchema = z.object({
 });
 
 export const TailorRequestSchema = z.object({
-  text: z.string().trim().min(1).max(60000),
+  jobDescription: z.string().trim().min(1).max(60000),
 });
 
 export const RenderRequestSchema = z.object({
   tailorable: TailorableSchema,
   templateId: IdSchema,
 });
+
+export type TailorRequest = z.infer<typeof TailorRequestSchema>;
