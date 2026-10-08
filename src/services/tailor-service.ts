@@ -5,6 +5,7 @@ import { AppError } from '../utils/AppError';
 import { normalizeDeep } from '../utils/normalize-text';
 import type { LlmClient } from './groq-service';
 import type { MasterResumeService } from './masterResume';
+import { checkTailored, type Finding } from './guardrail';
 
 const MAX_ATTEMPTS = 2;
 
@@ -16,6 +17,7 @@ interface TailorDeps {
 export interface TailorResult {
   original: Tailorable;
   tailored: Tailorable;
+  warnings: Finding[];
 }
 
 function describeIssues(
@@ -42,10 +44,39 @@ export function createTailorService({ masterResume, llm }: TailorDeps) {
         const parsed = TailorableSchema.safeParse(raw);
 
         if (parsed.success) {
-          return {
-            original: master.tailorable,
-            tailored: normalizeDeep(parsed.data),
-          };
+          if (parsed.success) {
+            const tailored = normalizeDeep(parsed.data);
+            const findings = checkTailored(
+              master.tailorable,
+              tailored,
+              jobDescription
+            );
+            const errors = findings.filter((f) => f.severity === 'error');
+
+            if (errors.length === 0) {
+              return {
+                original: master.tailorable,
+                tailored,
+                warnings: findings.filter((f) => f.severity === 'warning'),
+              };
+            }
+
+            const problems = errors
+              .slice(0, 10)
+              .map((f) => `- ${f.path}: ${f.message}`)
+              .join('\n');
+            console.error(
+              `Guardrail errors (attempt ${attempt}/${MAX_ATTEMPTS}):\n${problems}`
+            );
+            userMessage = `${user}
+      
+      <validation_errors>
+      Your previous response was rejected by fact checks:
+      ${problems}
+      Fix exactly these problems. Do not add anything that is not in the original content.
+      </validation_errors>`;
+            continue;
+          }
         }
 
         const problems = describeIssues(parsed.error.issues);
