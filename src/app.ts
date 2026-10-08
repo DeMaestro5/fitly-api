@@ -2,6 +2,11 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { errorHandler, notFound } from './middleware/errorHandler';
+import path from 'node:path';
+import { createMasterResumeController } from './controllers/masterResume';
+import { createFileResumeRepository } from './repo/resume.repo';
+import { createMasterResumeRouter } from './routes/master-resume';
+import { createMasterResumeService } from './services/masterResume';
 
 export function createApp() {
   const app = express();
@@ -14,6 +19,17 @@ export function createApp() {
     res.json({ status: 'ok' });
   });
 
+  const resumeRepo = createFileResumeRepository(
+    path.resolve(process.cwd(), 'data/master-resume.json')
+  );
+  const masterResumeController = createMasterResumeController(
+    createMasterResumeService(resumeRepo)
+  );
+
+  app.use(
+    '/api/master-resume',
+    createMasterResumeRouter(masterResumeController)
+  );
   app.use(notFound);
   app.use(errorHandler);
 

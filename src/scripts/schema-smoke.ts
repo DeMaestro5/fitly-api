@@ -1,4 +1,5 @@
 import { MasterResumeSchema } from '../schemas/resume.schema';
+import { mkdirSync, writeFileSync } from 'node:fs';
 
 const minimal = {
   schemaVersion: 1,
@@ -66,3 +67,6 @@ if (!result.success) {
   for (const issue of result.error.issues)
     console.log(`- ${issue.path.join('.')}: ${issue.message}`);
 }
+
+mkdirSync('data', { recursive: true });
+writeFileSync('data/ada.sample.json', JSON.stringify(minimal, null, 2));

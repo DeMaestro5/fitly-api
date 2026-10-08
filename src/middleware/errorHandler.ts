@@ -1,5 +1,5 @@
 import { ErrorRequestHandler, RequestHandler } from 'express';
-import { AppError } from '../utils/AppErrors';
+import { AppError } from '../utils/AppError';
 import { ZodError } from 'zod';
 
 export const notFound: RequestHandler = (req, _res, next) => {
