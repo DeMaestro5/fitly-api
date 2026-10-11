@@ -11,6 +11,7 @@ import { createTailorService } from './services/tailor-service';
 import { createGroqService } from './services/groq-service';
 import { createTailorController } from './controllers/tailor-controller';
 import { createTailorRouter } from './routes/tailor-routes';
+import { createJobPostingService } from './services/jobPosting-service';
 
 export function createApp() {
   const app = express();
@@ -27,11 +28,12 @@ export function createApp() {
     path.resolve(process.cwd(), 'data/master-resume.json')
   );
   const masterResumeService = createMasterResumeService(resumeRepo);
+  const llm = createGroqService();
   const tailorService = createTailorService({
     masterResume: masterResumeService,
-    llm: createGroqService(),
+    llm,
+    jobPosting: createJobPostingService(llm),
   });
-
   app.use(
     '/api/master-resume',
     createMasterResumeRouter(createMasterResumeController(masterResumeService))

@@ -2,6 +2,8 @@ export interface RetryOptions {
   retries: number;
   baseDelayMs: number;
   shouldRetry: (err: unknown) => boolean;
+  /** Optional: a wait time the error itself asks for (for example a rate-limit hint). */
+  getDelayMs?: (err: unknown) => number | null;
 }
 
 const sleep = (ms: number) =>
@@ -9,7 +11,7 @@ const sleep = (ms: number) =>
 
 export async function retry<T>(
   fn: () => Promise<T>,
-  { retries, baseDelayMs, shouldRetry }: RetryOptions
+  { retries, baseDelayMs, shouldRetry, getDelayMs }: RetryOptions
 ): Promise<T> {
   let attempt = 0;
   for (;;) {
@@ -17,7 +19,9 @@ export async function retry<T>(
       return await fn();
     } catch (err) {
       if (attempt >= retries || !shouldRetry(err)) throw err;
-      const delay = baseDelayMs * 2 ** attempt + Math.random() * baseDelayMs;
+      const hinted = getDelayMs?.(err) ?? null;
+      const delay =
+        hinted ?? baseDelayMs * 2 ** attempt + Math.random() * baseDelayMs;
       await sleep(delay);
       attempt += 1;
     }

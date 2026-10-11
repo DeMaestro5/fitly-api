@@ -3,7 +3,14 @@ import { normalizeText } from '../utils/normalize-text';
 
 export interface Finding {
   severity: 'error' | 'warning';
-  rule: 'ids' | 'skills' | 'numbers' | 'role-skill' | 'borrowed-terms';
+  rule:
+    | 'ids'
+    | 'skills'
+    | 'numbers'
+    | 'role-skill'
+    | 'borrowed-terms'
+    | 'retention'
+    | 'summary-scope';
   path: string;
   message: string;
 }
@@ -141,7 +148,7 @@ const GENERIC = new Set([
 const escapeRegExp = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const mentions = (text: string, term: string): boolean =>
+export const mentions = (text: string, term: string): boolean =>
   new RegExp(`(?<![a-z0-9])${escapeRegExp(term)}(?![a-z0-9])`, 'i').test(text);
 
 function numbersIn(text: string): Set<string> {
@@ -181,6 +188,64 @@ function borrowedTerms(
     if (!scopeStems.has(s) && jdStems.has(s)) found.add(word);
   }
   return [...found].slice(0, 8);
+}
+const sentences = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+function checkSummaryScope(
+  original: string | undefined,
+  tailored: string
+): Finding[] {
+  if (!original) {
+    return [
+      error(
+        'summary-scope',
+        'summary',
+        'The master resume has no summary to rewrite'
+      ),
+    ];
+  }
+  const originalSentences = sentences(original);
+  const sources = originalSentences.map(stemSet);
+  const out: Finding[] = [];
+
+  const kept = sentences(tailored).length;
+  const minKeep = Math.max(1, Math.ceil(originalSentences.length * 0.75));
+  if (kept < minKeep) {
+    out.push(
+      error(
+        'summary-scope',
+        'summary',
+        `Keeps ${kept} of ${originalSentences.length} sentences; keep at least ${minKeep}`
+      )
+    );
+  }
+
+  sentences(tailored).forEach((sentence, i) => {
+    const tokens = words(sentence);
+    const best = sources
+      .map((stems) => ({
+        stems,
+        shared: tokens.filter((w) => stems.has(stem(w))).length,
+      }))
+      .sort((a, b) => b.shared - a.shared)[0];
+    const foreign = tokens.filter((w) => !best?.stems.has(stem(w)));
+    if (foreign.length > 0) {
+      out.push(
+        error(
+          'summary-scope',
+          `summary.sentence${i + 1}`,
+          `Introduces terms not in the original sentence it is based on: ${[
+            ...new Set(foreign),
+          ].join(', ')}`
+        )
+      );
+    }
+  });
+  return out;
 }
 
 const allText = (t: Tailorable): string =>
@@ -334,17 +399,28 @@ export function checkTailored(
     findings.push(
       ...checkText('headline', tailored.headline, wholeOriginal, ctx)
     );
-  if (tailored.summary)
+  if (tailored.summary) {
     findings.push(
-      ...checkText('summary', tailored.summary, wholeOriginal, ctx)
+      ...checkText('summary', tailored.summary, wholeOriginal, ctx),
+      ...checkSummaryScope(original.summary, tailored.summary)
     );
-
+  }
   const originalRoles = new Map(original.experience.map((r) => [r.id, r]));
   for (const role of tailored.experience) {
     const source = originalRoles.get(role.id);
     if (!source) continue;
     const allowedBulletIds = new Set(source.bullets.map((b) => b.id));
     const scope = source.bullets.map((b) => b.text).join(' ');
+    const minKeep = Math.ceil(source.bullets.length / 2);
+    if (role.bullets.length < minKeep) {
+      findings.push(
+        error(
+          'retention',
+          `experience.${role.id}`,
+          `Keeps ${role.bullets.length} of ${source.bullets.length} bullets; keep at least ${minKeep}`
+        )
+      );
+    }
     for (const bullet of role.bullets) {
       const path = `experience.${role.id}.${bullet.id}`;
       if (!allowedBulletIds.has(bullet.id)) {

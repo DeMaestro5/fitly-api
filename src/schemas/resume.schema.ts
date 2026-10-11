@@ -5,7 +5,7 @@ import {
   IdSchema,
   PartialDateSchema,
   text,
-} from './common.scheme';
+} from './common.schema';
 
 /* ------------------------- LOCKED ------------------------- */
 /* Never sent to the LLM, never accepted from it.              */

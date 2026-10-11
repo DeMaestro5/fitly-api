@@ -22,7 +22,12 @@ novba.bullets[0].text =
 novba.bullets[6].text =
   'Implemented JWT auth with bcrypt (14 rounds) and per-route rate limiting.';
 tampered.skills[0].items.push('Kafka');
+tampered.experience[1].bullets = tampered.experience[1].bullets.slice(0, 2);
 tampered.experience[1].bullets[0].id = 'reach-ai-99';
+tampered.summary = original.summary!.replace(
+  'SEO automation pipelines',
+  'background job queues'
+);
 
 for (const f of checkTailored(original, tampered, jd)) {
   console.log(`[${f.severity}] ${f.rule} ${f.path}: ${f.message}`);
