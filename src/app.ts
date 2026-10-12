@@ -1,8 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import { errorHandler, notFound } from './middleware/errorHandler';
 import path from 'node:path';
+import { errorHandler, notFound } from './middleware/errorHandler';
 import { createMasterResumeController } from './controllers/masterResume';
 import { createFileResumeRepository } from './repo/resume.repo';
 import { createMasterResumeRouter } from './routes/master-resume';
@@ -12,8 +12,16 @@ import { createGroqService } from './services/groq-service';
 import { createTailorController } from './controllers/tailor-controller';
 import { createTailorRouter } from './routes/tailor-routes';
 import { createJobPostingService } from './services/jobPosting-service';
+import { createPdfService } from './services/pdf-service';
+import { createRenderService } from './services/render-service';
+import { createRenderController } from './controllers/render-controller';
+import {
+  createRenderRouter,
+  createTemplatesRouter,
+} from './routes/render-routes';
 
 export function createApp() {
+  const pdfService = createPdfService();
   const app = express();
 
   app.use(helmet());
@@ -34,6 +42,10 @@ export function createApp() {
     llm,
     jobPosting: createJobPostingService(llm),
   });
+  const renderController = createRenderController(
+    createRenderService({ masterResume: masterResumeService, pdf: pdfService })
+  );
+
   app.use(
     '/api/master-resume',
     createMasterResumeRouter(createMasterResumeController(masterResumeService))
@@ -42,9 +54,11 @@ export function createApp() {
     '/api/tailor',
     createTailorRouter(createTailorController(tailorService))
   );
+  app.use('/api/render', createRenderRouter(renderController));
+  app.use('/api/templates', createTemplatesRouter(renderController));
 
   app.use(notFound);
   app.use(errorHandler);
 
-  return app;
+  return { app, close: () => pdfService.close() };
 }

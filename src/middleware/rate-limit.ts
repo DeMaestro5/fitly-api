@@ -7,3 +7,11 @@ export const tailorRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many requests, please slow down' },
 });
+
+export const renderRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down' },
+});

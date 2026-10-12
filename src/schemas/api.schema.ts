@@ -15,4 +15,6 @@ export const RenderRequestSchema = z.object({
   templateId: IdSchema,
 });
 
+export type RenderRequest = z.infer<typeof RenderRequestSchema>;
+
 export type TailorRequest = z.infer<typeof TailorRequestSchema>;
