@@ -6,12 +6,18 @@ import { RenderRequestSchema } from '../schemas/api.schema';
 
 export function createRenderRouter(controller: RenderController) {
   const router = Router();
+
+  // POST /api/render -> PDF
   router.post(
     '/',
     renderRateLimit,
     validate(RenderRequestSchema),
     controller.render
   );
+
+  // POST /api/render/preview -> HTML (no Puppeteer, so no render rate limit)
+  router.post('/preview', validate(RenderRequestSchema), controller.preview);
+
   return router;
 }
 

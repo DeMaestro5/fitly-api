@@ -17,6 +17,21 @@ export function createRenderController(service: RenderService) {
         })
         .send(pdf);
     },
+
+    preview: async (req: Request, res: Response) => {
+      const { tailorable, templateId } = req.body as RenderRequest;
+      const html = await service.preview(tailorable, templateId);
+      res
+        .status(200)
+        .set({
+          'Content-Type': 'text/html; charset=utf-8',
+          // Static markup only: block scripts and network access.
+          'Content-Security-Policy':
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        })
+        .send(html);
+    },
+
     templates: (_req: Request, res: Response) => {
       res.json(listTemplates());
     },
