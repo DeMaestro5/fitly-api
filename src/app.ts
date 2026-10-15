@@ -19,6 +19,10 @@ import {
   createRenderRouter,
   createTemplatesRouter,
 } from './routes/render-routes';
+import { createResumeImportService } from './services/resume-import-service';
+import { createGroqComplete } from './services/groq-complete';
+import { createMasterResumeDraftRouter } from './routes/master-resume-draft-routes';
+import { createMasterResumeDraftController } from './controllers/masterResumeDraft';
 
 export function createApp() {
   const pdfService = createPdfService();
@@ -42,8 +46,22 @@ export function createApp() {
     llm,
     jobPosting: createJobPostingService(llm),
   });
-  const renderController = createRenderController(
-    createRenderService({ masterResume: masterResumeService, pdf: pdfService })
+
+  const renderService = createRenderService({
+    masterResume: masterResumeService,
+    pdf: pdfService,
+  });
+  const renderController = createRenderController(renderService);
+
+  const importService = createResumeImportService({
+    complete: createGroqComplete(),
+  });
+
+  app.use(
+    '/api/master-resume',
+    createMasterResumeDraftRouter(
+      createMasterResumeDraftController(importService, renderService)
+    )
   );
 
   app.use(

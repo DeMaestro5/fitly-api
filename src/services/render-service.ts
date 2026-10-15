@@ -1,4 +1,4 @@
-import type { Tailorable } from '../schemas/resume.schema';
+import type { MasterResume, Tailorable } from '../schemas/resume.schema';
 import { AppError } from '../utils/AppError';
 import { getTemplate } from '../templates';
 import type { MasterResumeService } from './masterResume';
@@ -30,17 +30,26 @@ const PREVIEW_CSS = `
   }
 `;
 
+const withPreviewStyles = (html: string) =>
+  html.replace('</head>', `<style>${PREVIEW_CSS}</style></head>`);
+
+function htmlFor(resume: MasterResume, templateId: string): string {
+  const template = getTemplate(templateId);
+  if (!template) throw new AppError(400, `Unknown template "${templateId}`);
+  return template.render(resume);
+}
+
+function fileNameFor(resume: MasterResume): string {
+  const safeName = resume.locked.basics.fullName
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `${safeName || 'Resume'}_Resume.pdf`;
+}
+
 export function createRenderService({ masterResume, pdf }: RenderDeps) {
-  // Shared by render() and preview() so both always produce the same HTML.
-  async function buildHtml(tailorable: Tailorable, templateId: string) {
-    const template = getTemplate(templateId);
-    if (!template) throw new AppError(400, `Unknown template "${templateId}"`);
-
-    // Locked fields (name, contact, dates...) always come from the master resume
-    const master = await masterResume.get();
-    const resume = buildResume(master, tailorable);
-
-    return { html: template.render(resume), resume };
+  // Locked fields (name, contact, dates...) always come from the saved master resume
+  async function tailored(tailorable: Tailorable): Promise<MasterResume> {
+    return buildResume(await masterResume.get(), tailorable);
   }
 
   return {
@@ -48,21 +57,33 @@ export function createRenderService({ masterResume, pdf }: RenderDeps) {
       tailorable: Tailorable,
       templateId: string
     ): Promise<RenderedResume> {
-      const { html, resume } = await buildHtml(tailorable, templateId);
-
-      const safeName = resume.locked.basics.fullName
-        .replace(/[^A-Za-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '');
-
+      const resume = await tailored(tailorable);
       return {
-        pdf: await pdf.render(html),
-        fileName: `${safeName || 'Resume'}_Resume.pdf`,
+        pdf: await pdf.render(htmlFor(resume, templateId)),
+        fileName: fileNameFor(resume),
       };
     },
 
     async preview(tailorable: Tailorable, templateId: string): Promise<string> {
-      const { html } = await buildHtml(tailorable, templateId);
-      return html.replace('</head>', `<style>${PREVIEW_CSS}</style></head>`);
+      return withPreviewStyles(htmlFor(await tailored(tailorable), templateId));
+    },
+
+    // The master resume page edits an unsaved draft, so it brings every field itself.
+    async renderDraft(
+      resume: MasterResume,
+      templateId: string
+    ): Promise<RenderedResume> {
+      return {
+        pdf: await pdf.render(htmlFor(resume, templateId)),
+        fileName: fileNameFor(resume),
+      };
+    },
+
+    async previewDraft(
+      resume: MasterResume,
+      templateId: string
+    ): Promise<string> {
+      return withPreviewStyles(htmlFor(resume, templateId));
     },
   };
 }
