@@ -266,11 +266,7 @@ function toDraft(extracted: ExtractedResume, text: string, links: string[]) {
   };
 
   return {
-    draft: {
-      schemaVersion: 1,
-      locked: clean(locked),
-      tailorable: clean(tailorable),
-    },
+    draft: { schemaVersion: 1, locked, tailorable },
     warnings,
   };
 }

@@ -22,9 +22,42 @@ const AnalysisSchema = z.object({
     .optional(),
   required: z.array(text(60)).max(40).default([]),
   preferred: z.array(text(60)).max(40).default([]),
+  company: z.string().trim().nullish().catch(undefined),
+  constraints: z.array(z.string()).nullish().catch(undefined),
+  location: z
+    .object({
+      scope: z.string().nullish(),
+      detail: z.string().nullish(),
+    })
+    .nullish()
+    .catch(undefined),
 });
 
 export type PostingMethod = 'ai' | 'full-text';
+
+export type LocationScope = 'worldwide' | 'restricted' | 'unclear';
+
+export interface PostingLocation {
+  scope: LocationScope;
+  detail: string | null;
+}
+
+const SCOPES: readonly string[] = ['worldwide', 'restricted', 'unclear'];
+
+function toLocation(
+  value: { scope?: string | null; detail?: string | null } | null | undefined
+): PostingLocation {
+  const scope: LocationScope =
+    value?.scope && SCOPES.includes(value.scope)
+      ? (value.scope as LocationScope)
+      : 'unclear';
+
+  const detail = value?.detail?.trim().slice(0, 140) || null;
+  return {
+    scope,
+    detail: scope === 'unclear' ? null : detail,
+  };
+}
 
 export interface PreparedPosting {
   text: string;
@@ -33,6 +66,9 @@ export interface PreparedPosting {
   method: PostingMethod;
   charsBefore: number;
   charsAfter: number;
+  company: string | null;
+  constraints: string[];
+  location: PostingLocation;
 }
 
 const BUTTON_LINE =
@@ -74,13 +110,26 @@ function sliceRanges(
   return parts.length > 0 ? parts.join('\n\n') : null;
 }
 
+interface PostingExtras {
+  company: string | null;
+  constraints: string[];
+  location: PostingLocation;
+}
+
+const NO_EXTRAS: PostingExtras = {
+  company: null,
+  constraints: [],
+  location: { scope: 'unclear', detail: null },
+};
+
 export function createJobPostingService(llm: LlmClient) {
   const finish = (
     body: string,
     title: string | null,
     requirements: Requirements | null,
     method: PostingMethod,
-    charsBefore: number
+    charsBefore: number,
+    extras: PostingExtras = NO_EXTRAS
   ): PreparedPosting => {
     const full = title ? `Job title: ${title}\n\n${body}` : body;
     if (full.length > MAX_POSTING_CHARS) {
@@ -99,6 +148,7 @@ export function createJobPostingService(llm: LlmClient) {
       requirements,
       method,
       charsBefore,
+      ...extras,
       charsAfter: full.length,
     };
   };
@@ -143,15 +193,30 @@ export function createJobPostingService(llm: LlmClient) {
         preferred: dedupe(clean.preferred),
       };
       const title = clean.title ?? null;
+      const extras: PostingExtras = {
+        company: clean.company?.slice(0, 100) || null,
+        constraints: (clean.constraints ?? [])
+          .map((item) => item.trim().slice(0, 140))
+          .filter(Boolean)
+          .slice(0, 12),
+        location: toLocation(clean.location),
+      };
 
       const rawSlice = analysis.ranges
         ? sliceRanges(lines, analysis.ranges)
         : null;
       const slice = rawSlice ? trimButtonLines(rawSlice) : null;
       if (slice && slice.length >= MIN_POSTING_CHARS) {
-        return finish(slice, title, requirements, 'ai', cleaned.length);
+        return finish(slice, title, requirements, 'ai', cleaned.length, extras);
       }
-      return finish(cleaned, title, requirements, 'full-text', cleaned.length);
+      return finish(
+        cleaned,
+        title,
+        requirements,
+        'full-text',
+        cleaned.length,
+        extras
+      );
     },
   };
 }

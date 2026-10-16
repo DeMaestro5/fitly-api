@@ -13,6 +13,7 @@ export const TailorRequestSchema = z.object({
 export const RenderRequestSchema = z.object({
   tailorable: TailorableSchema,
   templateId: IdSchema,
+  fileName: z.string().trim().max(150).optional(),
 });
 
 export type RenderRequest = z.infer<typeof RenderRequestSchema>;

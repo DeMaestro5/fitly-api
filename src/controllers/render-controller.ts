@@ -6,13 +6,17 @@ import { listTemplates } from '../templates';
 export function createRenderController(service: RenderService) {
   return {
     render: async (req: Request, res: Response) => {
-      const { tailorable, templateId } = req.body as RenderRequest;
-      const { pdf, fileName } = await service.render(tailorable, templateId);
+      const { tailorable, templateId, fileName } = req.body as RenderRequest;
+      const { pdf, fileName: pdfName } = await service.render(
+        tailorable,
+        templateId,
+        fileName
+      );
       res
         .status(200)
         .set({
           'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Content-Disposition': `attachment; filename="${pdfName}"`,
           'Content-Length': String(pdf.length),
         })
         .send(pdf);

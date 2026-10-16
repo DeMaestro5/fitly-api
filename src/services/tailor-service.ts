@@ -14,6 +14,8 @@ import type { LlmClient } from './groq-service';
 import type { MasterResumeService } from './masterResume';
 import { buildResume } from './resume-merge';
 import { JobPostingService, PreparedPosting } from './jobPosting-service';
+import { suggestFileName } from '../utils/file-name';
+import { assessFit, type FitReport } from './fit-service';
 
 const MAX_ATTEMPTS = 2;
 
@@ -32,6 +34,8 @@ export interface TailorResult {
     startsWith: string;
     endsWith: string;
   };
+  fit: FitReport | null;
+  suggestedFileName: string;
 }
 
 function describeIssues(
@@ -80,8 +84,9 @@ async function runTailoring(
               severity: 'warning' as const,
               rule: 'summary-scope' as const,
               path: 'summary',
-              message:
-                'The rewritten summary did not pass the checks, so the original summary was kept',
+              message: `The rewritten summary was rejected, so your original summary was kept. Reason: ${errors
+                .map((f) => f.message)
+                .join('; ')}`,
             },
           ],
         };
@@ -145,16 +150,26 @@ export function createTailorService({
         ? computeGaps(posting.requirements, master)
         : null;
 
+      const fit = assessFit(gaps);
+
       return {
         tailored,
         diff: diffTailorable(master.tailorable, tailored),
         gaps,
         warnings,
+        fit,
+        suggestedFileName: suggestFileName(
+          master.locked.basics.fullName,
+          posting.company
+        ),
         posting: {
           title: posting.title,
           method: posting.method,
+          company: posting.company,
+          constraints: posting.constraints,
           charsBefore: posting.charsBefore,
           charsAfter: posting.charsAfter,
+          location: posting.location,
           startsWith: posting.text.slice(0, 200),
           endsWith: posting.text.slice(-200),
         },

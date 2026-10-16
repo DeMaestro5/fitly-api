@@ -4,6 +4,7 @@ import { getTemplate } from '../templates';
 import type { MasterResumeService } from './masterResume';
 import type { PdfService } from './pdf-service';
 import { buildResume } from './resume-merge';
+import { slug, sanitizeFileName } from '../utils/file-name';
 
 interface RenderDeps {
   masterResume: MasterResumeService;
@@ -39,11 +40,11 @@ function htmlFor(resume: MasterResume, templateId: string): string {
   return template.render(resume);
 }
 
-function fileNameFor(resume: MasterResume): string {
-  const safeName = resume.locked.basics.fullName
-    .replace(/[^A-Za-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return `${safeName || 'Resume'}_Resume.pdf`;
+function fileNameFor(resume: MasterResume, requested?: string): string {
+  return sanitizeFileName(
+    requested,
+    `${slug(resume.locked.basics.fullName) || 'Resume'}_Resume`
+  );
 }
 
 export function createRenderService({ masterResume, pdf }: RenderDeps) {
@@ -55,12 +56,13 @@ export function createRenderService({ masterResume, pdf }: RenderDeps) {
   return {
     async render(
       tailorable: Tailorable,
-      templateId: string
+      templateId: string,
+      fileName?: string
     ): Promise<RenderedResume> {
       const resume = await tailored(tailorable);
       return {
         pdf: await pdf.render(htmlFor(resume, templateId)),
-        fileName: fileNameFor(resume),
+        fileName: fileNameFor(resume, fileName),
       };
     },
 

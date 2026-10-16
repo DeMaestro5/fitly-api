@@ -55,10 +55,12 @@ const CSS = `
     font-size: 8.6pt;
     line-height: 1.5;
     color: #333;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 16px;
   }
 
   .contact-item {
-    display: inline-block;
     white-space: nowrap;
   }
 
