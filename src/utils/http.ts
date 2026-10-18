@@ -1,16 +1,17 @@
 export const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-interface FetchJsonOptions {
+interface FetchOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   retries?: number;
   signal?: AbortSignal;
 }
 
-export async function fetchJson<T>(
+export async function fetchBody<T>(
   url: string,
-  opts: FetchJsonOptions = {}
+  opts: FetchOptions = {},
+  read: (res: Response) => Promise<T>
 ): Promise<T> {
   const { headers, timeoutMs = 15000, retries = 3, signal } = opts;
 
@@ -25,7 +26,7 @@ export async function fetchJson<T>(
 
     try {
       const res = await fetch(url, { headers, signal: controller.signal });
-      if (res.ok) return (await res.json()) as T;
+      if (res.ok) return read(res);
       status = res.status;
       retryAfter = res.headers.get('retry-after');
     } catch (err) {
@@ -49,3 +50,8 @@ export async function fetchJson<T>(
     await sleep(Math.min(waitMs, 30000));
   }
 }
+export const fetchJson = <T>(url: string, opts: FetchOptions = {}) =>
+  fetchBody<T>(url, opts, (res) => res.json() as Promise<T>);
+
+export const fetchText = (url: string, opts: FetchOptions = {}) =>
+  fetchBody<string>(url, opts, (res) => res.text());

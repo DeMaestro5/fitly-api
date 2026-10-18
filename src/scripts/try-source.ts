@@ -1,10 +1,14 @@
 import { createHimalayasSource } from '../sources/himalayas-source';
 import { createRemoteOkSource } from '../sources/remoteok-source';
 import type { JobSource } from '../sources/source.type';
+import { createWwrSource } from '../sources/wwr-source';
+import { createJobicySource } from '../sources/jobicy-source';
 
 const factories: Record<string, () => JobSource> = {
   himalayas: () => createHimalayasSource(process.env.HIMALAYAS_API_KEY),
   remoteok: () => createRemoteOkSource(),
+  wwr: () => createWwrSource(),
+  jobicy: () => createJobicySource(),
 };
 
 (async () => {
