@@ -41,7 +41,7 @@ const CSS = `
   a {
     color: #174ea6;
     text-decoration: underline;
-  }
+  } 
 
   .headline {
     margin: 3px 0 0;
