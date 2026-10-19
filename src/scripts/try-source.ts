@@ -3,12 +3,16 @@ import { createRemoteOkSource } from '../sources/remoteok-source';
 import type { JobSource } from '../sources/source.type';
 import { createWwrSource } from '../sources/wwr-source';
 import { createJobicySource } from '../sources/jobicy-source';
+import { createRemotiveSource } from '../sources/remotive-source';
+import { createArbeitnowSource } from '../sources/arbeitnow-source';
 
 const factories: Record<string, () => JobSource> = {
   himalayas: () => createHimalayasSource(process.env.HIMALAYAS_API_KEY),
   remoteok: () => createRemoteOkSource(),
   wwr: () => createWwrSource(),
   jobicy: () => createJobicySource(),
+  remotive: () => createRemotiveSource(),
+  arbeitnow: () => createArbeitnowSource(),
 };
 
 (async () => {
@@ -47,6 +51,9 @@ const factories: Record<string, () => JobSource> = {
     withSalary: jobs.filter((j) => j.salaryText !== null).length,
     withRegionNote: withNote,
     noRegionNote: jobs.length - withNote,
+    remote: jobs.filter((j) => j.remoteType === 'remote').length,
+    onsite: jobs.filter((j) => j.remoteType === 'onsite').length,
+    withVisaTag: jobs.filter((j) => j.tags.includes('Visa sponsorship')).length,
     endsWithSpamLine: jobs.filter((j) =>
       /Please mention the word/i.test(j.descriptionText)
     ).length,

@@ -23,3 +23,13 @@ export function fixMojibake(text: string): string {
   const fixed = Buffer.from(text, 'latin1').toString('utf8');
   return fixed.includes('\uFFFD') ? text : fixed;
 }
+
+// Some feeds return HTML that was escaped twice ("&lt;div&gt;" as literal text).
+export function unescapeHtml(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
