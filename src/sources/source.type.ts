@@ -8,7 +8,7 @@ export interface JobSource {
 }
 
 export interface SourceStatus {
-  source: JobSource;
+  source: JobSourceId;
   ok: boolean;
   count: number;
   error: string | null;
@@ -17,6 +17,6 @@ export interface SourceStatus {
 }
 
 export interface SourceRunResult {
-  status: SourceRunResult;
+  status: SourceStatus;
   jobs: SourceJob[];
 }
