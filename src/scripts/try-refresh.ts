@@ -1,6 +1,6 @@
 import { closeDb } from '../repo/db';
 import { countJobs, getRuns } from '../repo/jobs.repo';
-import { refreshAll } from '../services/job-refresh-service';
+import { refreshAll } from '../services/jobs-refresh-service';
 import { buildSources } from '../sources';
 
 (async () => {

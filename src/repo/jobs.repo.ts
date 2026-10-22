@@ -77,13 +77,21 @@ export function recomputeDuplicates(): number {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT id, source, salary_text AS salaryText, length(description_text) AS descLength,
-              dedupe_key AS dedupeKey
+      `SELECT id, source, company, title, salary_text AS salaryText,
+              length(description_text) AS descLength
        FROM jobs WHERE expired = 0`,
     )
-    .all() as DedupeRow[];
+    .all() as (Omit<DedupeRow, 'dedupeKey'> & {
+    company: string;
+    title: string;
+  })[];
 
-  const assignments = assignDuplicates(rows);
+  const assignments = assignDuplicates(
+    rows.map((r) => ({
+      ...r,
+      dedupeKey: dedupeKey({ company: r.company, title: r.title }),
+    })),
+  );
   const reset = db.prepare(
     'UPDATE jobs SET duplicate_of = NULL WHERE duplicate_of IS NOT NULL',
   );
@@ -163,4 +171,68 @@ export function countJobs() {
     ),
     visibleBySource: Object.fromEntries(bySource.map((r) => [r.source, r.n])),
   };
+}
+
+export interface JobForScoring {
+  id: string;
+  source: JobSourceId;
+  title: string;
+  company: string;
+  tags: string[];
+  descriptionText: string;
+}
+
+export function listJobsForScoring(): JobForScoring[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT id, source, title, company, tags, description_text AS descriptionText
+       FROM jobs
+       WHERE expired = 0`,
+    )
+    .all() as {
+    id: string;
+    source: string;
+    title: string;
+    company: string;
+    tags: string;
+    descriptionText: string;
+  }[];
+
+  return rows.map((r) => {
+    let tags: string[] = [];
+    try {
+      const parsed = JSON.parse(r.tags);
+      if (Array.isArray(parsed)) tags = parsed;
+    } catch {
+      tags = [];
+    }
+    return {
+      id: r.id,
+      source: r.source as JobSourceId,
+      title: r.title,
+      company: r.company,
+      tags,
+      descriptionText: r.descriptionText ?? '',
+    };
+  });
+}
+
+export interface JobScoreEntry {
+  id: string;
+  score: number;
+  matched: string[];
+}
+
+export function saveScores(entries: JobScoreEntry[]): void {
+  const db = getDb();
+  const update = db.prepare(
+    'UPDATE jobs SET score = ?, matched = ? WHERE id = ?',
+  );
+
+  db.transaction((items: JobScoreEntry[]) => {
+    for (const item of items) {
+      update.run(item.score, JSON.stringify(item.matched), item.id);
+    }
+  })(entries);
 }

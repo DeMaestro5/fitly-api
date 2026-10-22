@@ -1,4 +1,5 @@
 import type { JobSourceId, SourceJob } from '../schemas/job.schema';
+import { extractCanonicalSkills } from './skills-dictionary';
 
 // Lower index wins when the same job shows up on several sources.
 const SOURCE_PRIORITY: JobSourceId[] = [
@@ -28,8 +29,15 @@ export function dedupeKey(job: Pick<SourceJob, 'company' | 'title'>): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const title = fold(job.title)
-    .replace(/\([^)]*\)/g, ' ') // (m/f/d), (Remote), ...
+  // Keep a bracket's text when it names a technology: "(Python)" and "(Node.js)" are
+  // different jobs. Drop it when it is noise such as (m/f/d) or (Remote).
+  const titleWithStacks = job.title.replace(
+    /\(([^)]*)\)/g,
+    (_match, inner: string) =>
+      extractCanonicalSkills(inner).length > 0 ? ` ${inner} ` : ' ',
+  );
+
+  const title = fold(titleWithStacks)
     .replace(/\bsr\b/g, 'senior')
     .replace(/\bjr\b/g, 'junior')
     .replace(/\bremote\b/g, ' ')
