@@ -1,10 +1,11 @@
 import { env } from './config/env';
 import { createApp } from './app';
 
-const { app, close } = createApp();
+const { app, close, startScheduler } = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`API listening on http://localhost:${env.PORT}`);
+  startScheduler();
 });
 
 function shutdown(signal: string) {

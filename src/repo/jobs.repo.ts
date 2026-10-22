@@ -1,4 +1,9 @@
-import type { JobSourceId, SourceJob } from '../schemas/job.schema';
+import type {
+  JobSourceId,
+  SourceJob,
+  JobStatus,
+  RemoteType,
+} from '../schemas/job.schema';
 import type { SourceStatus } from '../sources/source.type';
 import {
   assignDuplicates,
@@ -235,4 +240,235 @@ export function saveScores(entries: JobScoreEntry[]): void {
       update.run(item.score, JSON.stringify(item.matched), item.id);
     }
   })(entries);
+}
+
+export type JobScope = 'worldwide' | 'limited' | 'unknown';
+
+export interface JobFilters {
+  q?: string;
+  source?: JobSourceId;
+  status?: JobStatus;
+  minScore: number;
+  sinceDays?: number;
+  scope?: JobScope;
+  sort: 'score' | 'posted';
+  page: number;
+  pageSize: number;
+}
+
+export interface JobListItem {
+  id: string;
+  source: JobSourceId;
+  sourceUrl: string;
+  applyUrl: string;
+  title: string;
+  company: string;
+  location: string | null;
+  regionNote: string | null;
+  remoteType: RemoteType;
+  employmentType: string | null;
+  salaryText: string | null;
+  tags: string[];
+  postedAt: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  score: number;
+  matched: string[];
+  status: JobStatus;
+  notes: string | null;
+  expired: boolean;
+  duplicateOf: string | null;
+}
+
+// The list leaves out the description (it is big); the detail view includes it.
+export interface JobDetail extends JobListItem {
+  descriptionText: string;
+}
+
+export interface JobListResults {
+  items: JobListItem[];
+  total: number;
+}
+
+export interface JobPatch {
+  status?: JobStatus;
+  notes?: string | null;
+}
+
+interface JobRow {
+  id: string;
+  source: string;
+  source_url: string;
+  apply_url: string;
+  title: string;
+  company: string;
+  location: string | null;
+  region_note: string | null;
+  remote_type: string;
+  employment_type: string;
+  salary_text: string | null;
+  tags: string | null;
+  posted_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  score: number | null;
+  matched: string | null;
+  status: string | null;
+  notes: string | null;
+  expired: number;
+  duplicate_of: string | null;
+  description_text?: string | null;
+}
+
+const LIST_COLUMNS = `id, source, source_url, apply_url, title, company, location, region_note,
+remote_type, employment_type, salary_text, tags, posted_at, first_seen_at, 
+last_seen_at, score, matched, status, notes, expired, duplicate_of`;
+
+// Feeds publish dates in different formats. datetime() understands ISO dates and gives NULL
+// for anything else, so unreadable dates fall back to the day we first saw the job.
+const POSTED_SQL = `coalesce(datetime(posted_at), datetime(first_seen_at))`;
+
+// Column names come from this whitelist, never from the request.
+const ORDER_SQL = {
+  score: `score DESC, ${POSTED_SQL} DESC, id ASC`,
+  posted: `${POSTED_SQL} DESC, score DESC, id ASC`,
+} as const;
+
+const REGION_TEXT = `lower(coalesce(region_note, '') || ' ' || coalesce(location, ''))`;
+const WORLDWIDE_SQL = `(${REGION_TEXT} LIKE '%worldwide%' OR ${REGION_TEXT} LIKE '%anywhere%' OR ${REGION_TEXT} LIKE '%global%')`;
+const HAS_REGION_NOTE_SQL = `(trim(coalesce(region_note, '')) != '')`;
+const SCOPE_SQL: Record<JobScope, string> = {
+  worldwide: WORLDWIDE_SQL,
+  limited: `(${HAS_REGION_NOTE_SQL} AND NOT ${WORLDWIDE_SQL})`,
+  unknown: `(NOT ${WORLDWIDE_SQL} AND NOT ${HAS_REGION_NOTE_SQL})`,
+};
+
+function parseStringArray(text: string | null | undefined): string[] {
+  if (!text) return [];
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toJobListItem(row: JobRow): JobListItem {
+  return {
+    id: row.id,
+    source: row.source as JobSourceId,
+    sourceUrl: row.source_url,
+    applyUrl: row.apply_url,
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    regionNote: row.region_note,
+    remoteType: row.remote_type as RemoteType,
+    employmentType: row.employment_type,
+    salaryText: row.salary_text,
+    tags: parseStringArray(row.tags),
+    postedAt: row.posted_at,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    score: row.score ?? 0,
+    matched: parseStringArray(row.matched),
+    status: row.status as JobStatus,
+    notes: row.notes,
+    expired: row.expired === 1,
+    duplicateOf: row.duplicate_of,
+  };
+}
+
+// In LIKE, % and _ are wildcards. Escape them so searching "100%" means the text "100%".
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, '\\$&');
+
+// Every word must match somewhere (title, company or description): "react stripe" = both.
+function searchWords(q: string | undefined): string[] {
+  return (q ?? '').split(/\s+/).filter(Boolean).slice(0, 5);
+}
+
+export function listJobs(filters: JobFilters): JobListResults {
+  // Expired and duplicate rows are never shown in the list.
+  const where: string[] = ['expired = 0', 'duplicate_of IS NULL'];
+  const params: (string | number)[] = [];
+
+  for (const word of searchWords(filters.q)) {
+    const like = `%${escapeLike(word)}%`;
+    where.push(
+      `(title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR description_text LIKE ? ESCAPE '\\')`,
+    );
+    params.push(like, like, like);
+  }
+  if (filters.source) {
+    where.push('source = ?');
+    params.push(filters.source);
+  }
+  if (filters.status) {
+    where.push('status = ?');
+    params.push(filters.status);
+  }
+  if (filters.minScore > 0) {
+    where.push('score >= ?');
+    params.push(filters.minScore);
+  }
+  if (filters.sinceDays) {
+    where.push(`${POSTED_SQL} >= datetime('now', ?)`);
+    params.push(`-${filters.sinceDays} days`);
+  }
+  if (filters.scope) where.push(SCOPE_SQL[filters.scope]);
+
+  const whereSql = where.join(' AND ');
+  const db = getDb();
+
+  const total = (
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM jobs WHERE ${whereSql}`)
+      .get(...params) as {
+      n: number;
+    }
+  ).n;
+
+  const rows = db
+    .prepare(
+      `SELECT ${LIST_COLUMNS} FROM jobs WHERE ${whereSql}
+       ORDER BY ${ORDER_SQL[filters.sort]} LIMIT ? OFFSET ?`,
+    )
+    .all(
+      ...params,
+      filters.pageSize,
+      (filters.page - 1) * filters.pageSize,
+    ) as JobRow[];
+
+  return { items: rows.map(toJobListItem), total };
+}
+
+export function getJob(id: string): JobDetail | undefined {
+  const row = getDb()
+    .prepare(`SELECT ${LIST_COLUMNS}, description_text FROM jobs WHERE id = ?`)
+    .get(id) as JobRow | undefined;
+  return row
+    ? { ...toJobListItem(row), descriptionText: row.description_text ?? '' }
+    : undefined;
+}
+
+export function updateJob(id: string, patch: JobPatch): JobDetail | undefined {
+  const sets: string[] = [];
+  const params: (string | null)[] = [];
+  if (patch.status !== undefined) {
+    sets.push('status = ?');
+    params.push(patch.status);
+  }
+  if (patch.notes !== undefined) {
+    sets.push('notes = ?');
+    params.push(patch.notes);
+  }
+  if (sets.length === 0) return getJob(id);
+
+  const result = getDb()
+    .prepare(`UPDATE jobs SET ${sets.join(', ')} WHERE id = ?`)
+    .run(...params, id);
+
+  return result.changes === 0 ? undefined : getJob(id);
 }

@@ -23,6 +23,14 @@ import { createResumeImportService } from './services/resume-import-service';
 import { createGroqComplete } from './services/groq-complete';
 import { createMasterResumeDraftRouter } from './routes/master-resume-draft-routes';
 import { createMasterResumeDraftController } from './controllers/masterResumeDraft';
+import { closeDb } from './repo/db';
+import { buildSources } from './sources';
+import { createJobsService } from './services/jobs-service';
+import { createJobsController } from './controllers/jobs-controller';
+import { createJobsRouter } from './routes/jobs-routes';
+import { createScheduler } from './services/scheduler';
+
+console.log('createApp v2 with jobs router');
 
 export function createApp() {
   const pdfService = createPdfService();
@@ -37,7 +45,7 @@ export function createApp() {
   });
 
   const resumeRepo = createFileResumeRepository(
-    path.resolve(process.cwd(), 'data/master-resume.json')
+    path.resolve(process.cwd(), 'data/master-resume.json'),
   );
   const masterResumeService = createMasterResumeService(resumeRepo);
   const llm = createGroqService();
@@ -53,6 +61,9 @@ export function createApp() {
   });
   const renderController = createRenderController(renderService);
 
+  const sources = buildSources(); // if try-refresh passes an API key, pass the same one here
+  const jobsService = createJobsService({ sources });
+
   const importService = createResumeImportService({
     complete: createGroqComplete(),
   });
@@ -60,23 +71,36 @@ export function createApp() {
   app.use(
     '/api/master-resume',
     createMasterResumeDraftRouter(
-      createMasterResumeDraftController(importService, renderService)
-    )
+      createMasterResumeDraftController(importService, renderService),
+    ),
   );
 
   app.use(
     '/api/master-resume',
-    createMasterResumeRouter(createMasterResumeController(masterResumeService))
+    createMasterResumeRouter(createMasterResumeController(masterResumeService)),
   );
   app.use(
     '/api/tailor',
-    createTailorRouter(createTailorController(tailorService))
+    createTailorRouter(createTailorController(tailorService)),
   );
   app.use('/api/render', createRenderRouter(renderController));
   app.use('/api/templates', createTemplatesRouter(renderController));
+  app.use('/api/jobs', createJobsRouter(createJobsController(jobsService)));
+
+  const scheduler = createScheduler({ sources });
 
   app.use(notFound);
   app.use(errorHandler);
-
-  return { app, close: () => pdfService.close() };
+  return {
+    app,
+    startScheduler: () => scheduler.start(),
+    close: async () => {
+      scheduler.stop();
+      try {
+        closeDb(); // lets SQLite finish writing cleanly
+      } finally {
+        await pdfService.close();
+      }
+    },
+  };
 }
