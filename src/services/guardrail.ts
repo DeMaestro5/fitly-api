@@ -18,7 +18,7 @@ export interface Finding {
 const error = (
   rule: Finding['rule'],
   path: string,
-  message: string
+  message: string,
 ): Finding => ({
   severity: 'error',
   rule,
@@ -28,7 +28,7 @@ const error = (
 const warning = (
   rule: Finding['rule'],
   path: string,
-  message: string
+  message: string,
 ): Finding => ({
   severity: 'warning',
   rule,
@@ -170,7 +170,7 @@ function stem(word: string): string {
 function words(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
     (w) =>
-      w.length >= 3 && !/^\d+$/.test(w) && !STOPWORDS.has(w) && !GENERIC.has(w)
+      w.length >= 3 && !/^\d+$/.test(w) && !STOPWORDS.has(w) && !GENERIC.has(w),
   );
 }
 
@@ -179,7 +179,7 @@ const stemSet = (text: string) => new Set(words(text).map(stem));
 function borrowedTerms(
   text: string,
   scope: string,
-  jdStems: Set<string>
+  jdStems: Set<string>,
 ): string[] {
   const scopeStems = stemSet(scope);
   const found = new Set<string>();
@@ -189,82 +189,13 @@ function borrowedTerms(
   }
   return [...found].slice(0, 8);
 }
-const sentences = (text: string): string[] =>
-  text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-function checkSummaryScope(
-  original: string | undefined,
-  tailored: string
-): Finding[] {
-  if (!original) {
-    return [
-      error(
-        'summary-scope',
-        'summary',
-        'The master resume has no summary to rewrite'
-      ),
-    ];
-  }
-  const originalSentences = sentences(original);
-  const sources = originalSentences.map(stemSet);
-  const out: Finding[] = [];
-
-  const kept = sentences(tailored).length;
-  const minKeep = Math.max(1, Math.ceil(originalSentences.length * 0.75));
-  if (kept < minKeep) {
-    out.push(
-      error(
-        'summary-scope',
-        'summary',
-        `Keeps ${kept} of ${originalSentences.length} sentences; keep at least ${minKeep}`
-      )
-    );
-  }
-
-  sentences(tailored).forEach((sentence, i) => {
-    const tokens = words(sentence);
-    const best = sources
-      .map((stems) => ({
-        stems,
-        shared: tokens.filter((w) => stems.has(stem(w))).length,
-      }))
-      .sort((a, b) => b.shared - a.shared)[0];
-    const foreign = tokens.filter((w) => !best?.stems.has(stem(w)));
-    if (foreign.length > 0) {
-      out.push(
-        error(
-          'summary-scope',
-          `summary.sentence${i + 1}`,
-          `Introduces terms not in the original sentence it is based on: ${[
-            ...new Set(foreign),
-          ].join(', ')}`
-        )
-      );
-    }
-  });
-  return out;
-}
-
-const allText = (t: Tailorable): string =>
-  [
-    t.headline,
-    t.summary,
-    ...t.experience.flatMap((r) => r.bullets.map((b) => b.text)),
-    ...t.projects.map((p) => p.description),
-    ...t.skills.flatMap((g) => g.items),
-  ]
-    .filter(Boolean)
-    .join(' ');
 
 /* ------------------------------ checks ------------------------------ */
 
 function compareIds(
   kind: string,
   originalIds: string[],
-  tailoredIds: string[]
+  tailoredIds: string[],
 ): Finding[] {
   const out: Finding[] = [];
   if (tailoredIds.length !== new Set(tailoredIds).size) {
@@ -273,7 +204,7 @@ function compareIds(
   for (const id of tailoredIds) {
     if (!originalIds.includes(id))
       out.push(
-        error('ids', `${kind}.${id}`, 'Unknown id, not in the master resume')
+        error('ids', `${kind}.${id}`, 'Unknown id, not in the master resume'),
       );
   }
   for (const id of originalIds) {
@@ -293,7 +224,7 @@ function checkSkills(original: Tailorable, tailored: Tailorable): Finding[] {
       out.push(error('skills', `skills.${group.id}`, 'Group name was changed'));
     }
     const allowed = new Set(
-      source.items.map((i) => normalizeText(i).toLowerCase())
+      source.items.map((i) => normalizeText(i).toLowerCase()),
     );
     for (const item of group.items) {
       if (!allowed.has(normalizeText(item).toLowerCase())) {
@@ -301,8 +232,8 @@ function checkSkills(original: Tailorable, tailored: Tailorable): Finding[] {
           error(
             'skills',
             `skills.${group.id}`,
-            `New skill not in the master resume: "${item}"`
-          )
+            `New skill not in the master resume: "${item}"`,
+          ),
         );
       }
     }
@@ -319,7 +250,7 @@ function checkText(
   path: string,
   text: string,
   scope: string,
-  ctx: TextContext
+  ctx: TextContext,
 ): Finding[] {
   const out: Finding[] = [];
 
@@ -327,7 +258,7 @@ function checkText(
   for (const n of numbersIn(text)) {
     if (!allowedNumbers.has(n))
       out.push(
-        error('numbers', path, `Number "${n}" is not in the original text`)
+        error('numbers', path, `Number "${n}" is not in the original text`),
       );
   }
 
@@ -337,8 +268,8 @@ function checkText(
         error(
           'role-skill',
           path,
-          `Mentions "${term}", which the original text for this entry does not`
-        )
+          `Mentions "${term}", which the original text for this entry does not`,
+        ),
       );
     }
   }
@@ -349,8 +280,8 @@ function checkText(
       warning(
         'borrowed-terms',
         path,
-        `Wording borrowed from the job description: ${borrowed.join(', ')}`
-      )
+        `Wording borrowed from the job description: ${borrowed.join(', ')}`,
+      ),
     );
   }
   return out;
@@ -361,23 +292,23 @@ function checkText(
 export function checkTailored(
   original: Tailorable,
   tailored: Tailorable,
-  jobDescription: string
+  jobDescription: string,
 ): Finding[] {
   const findings: Finding[] = [
     ...compareIds(
       'experience',
       original.experience.map((r) => r.id),
-      tailored.experience.map((r) => r.id)
+      tailored.experience.map((r) => r.id),
     ),
     ...compareIds(
       'projects',
       original.projects.map((p) => p.id),
-      tailored.projects.map((p) => p.id)
+      tailored.projects.map((p) => p.id),
     ),
     ...compareIds(
       'skills',
       original.skills.map((g) => g.id),
-      tailored.skills.map((g) => g.id)
+      tailored.skills.map((g) => g.id),
     ),
     ...checkSkills(original, tailored),
   ];
@@ -388,23 +319,12 @@ export function checkTailored(
         original.skills
           .flatMap((g) => g.items)
           .map((item) => item.replace(/\s*\(.*?\)/g, '').trim())
-          .filter((item) => item.length >= 2)
+          .filter((item) => item.length >= 2),
       ),
     ],
     jdStems: stemSet(jobDescription),
   };
 
-  const wholeOriginal = allText(original);
-  if (tailored.headline)
-    findings.push(
-      ...checkText('headline', tailored.headline, wholeOriginal, ctx)
-    );
-  if (tailored.summary) {
-    findings.push(
-      ...checkText('summary', tailored.summary, wholeOriginal, ctx),
-      ...checkSummaryScope(original.summary, tailored.summary)
-    );
-  }
   const originalRoles = new Map(original.experience.map((r) => [r.id, r]));
   for (const role of tailored.experience) {
     const source = originalRoles.get(role.id);
@@ -417,8 +337,8 @@ export function checkTailored(
         error(
           'retention',
           `experience.${role.id}`,
-          `Keeps ${role.bullets.length} of ${source.bullets.length} bullets; keep at least ${minKeep}`
-        )
+          `Keeps ${role.bullets.length} of ${source.bullets.length} bullets; keep at least ${minKeep}`,
+        ),
       );
     }
     for (const bullet of role.bullets) {
@@ -428,8 +348,8 @@ export function checkTailored(
           error(
             'ids',
             path,
-            'Bullet does not belong to this role in the master resume'
-          )
+            'Bullet does not belong to this role in the master resume',
+          ),
         );
         continue;
       }
@@ -446,8 +366,8 @@ export function checkTailored(
           `projects.${project.id}`,
           project.description,
           source.description,
-          ctx
-        )
+          ctx,
+        ),
       );
   }
 

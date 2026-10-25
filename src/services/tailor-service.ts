@@ -16,6 +16,9 @@ import { buildResume } from './resume-merge';
 import { JobPostingService, PreparedPosting } from './jobPosting-service';
 import { suggestFileName } from '../utils/file-name';
 import { assessFit, type FitReport } from './fit-service';
+import { getJobSignals, type Focus } from './job-signals';
+import { orderSkillsForJob } from './skills-order';
+import { createSummaryService, type SummarySource } from './summary-service';
 
 const MAX_ATTEMPTS = 2;
 
@@ -36,10 +39,11 @@ export interface TailorResult {
   };
   fit: FitReport | null;
   suggestedFileName: string;
+  summaryInfo: { source: SummarySource; focus: Focus; aiHeavy: boolean };
 }
 
 function describeIssues(
-  issues: { path: PropertyKey[]; message: string }[]
+  issues: { path: PropertyKey[]; message: string }[],
 ): string {
   return issues
     .slice(0, 8)
@@ -50,7 +54,7 @@ function describeIssues(
 async function runTailoring(
   master: MasterResume,
   jobDescription: string,
-  llm: LlmClient
+  llm: LlmClient,
 ) {
   const { system, user } = buildTailorPrompt(master.tailorable, jobDescription);
   let userMessage = user;
@@ -61,53 +65,34 @@ async function runTailoring(
 
     let problems: string;
     if (parsed.success) {
+      // The summary service writes the headline and summary, so whatever the model wrote
+      // for them here is ignored (the originals are put back before the fact checks run).
       const tailored = normalizeDeep(parsed.data);
       const findings = checkTailored(
         master.tailorable,
         tailored,
-        jobDescription
+        jobDescription,
       );
       const errors = findings.filter((f) => f.severity === 'error');
       const warnings = findings.filter((f) => f.severity === 'warning');
       if (errors.length === 0) return { tailored, warnings };
-
-      // Only the summary is wrong: keep your original summary instead of spending another AI call
-      if (errors.every((f) => f.rule === 'summary-scope')) {
-        console.error(
-          `Summary rejected (${errors[0].message}); keeping the original summary`
-        );
-        return {
-          tailored: { ...tailored, summary: master.tailorable.summary },
-          warnings: [
-            ...warnings.filter((f) => !f.path.startsWith('summary')),
-            {
-              severity: 'warning' as const,
-              rule: 'summary-scope' as const,
-              path: 'summary',
-              message: `The rewritten summary was rejected, so your original summary was kept. Reason: ${errors
-                .map((f) => f.message)
-                .join('; ')}`,
-            },
-          ],
-        };
-      }
 
       problems = errors
         .slice(0, 10)
         .map((f) => `- ${f.path}: ${f.message}`)
         .join('\n');
       console.error(
-        `Guardrail errors (attempt ${attempt}/${MAX_ATTEMPTS}):\n${problems}`
+        `Guardrail errors (attempt ${attempt}/${MAX_ATTEMPTS}):\n${problems}`,
       );
     } else {
       problems = describeIssues(parsed.error.issues);
       console.error(
-        `Tailor output failed validation (attempt ${attempt}/${MAX_ATTEMPTS}):\n${problems}`
+        `Tailor output failed validation (attempt ${attempt}/${MAX_ATTEMPTS}):\n${problems}`,
       );
       if (env.NODE_ENV !== 'production') {
         console.error(
           'Raw response (truncated):',
-          JSON.stringify(raw)?.slice(0, 500)
+          JSON.stringify(raw)?.slice(0, 500),
         );
       }
     }
@@ -123,7 +108,7 @@ async function runTailoring(
 
   throw new AppError(
     502,
-    'The AI could not produce a resume that passes the fact checks'
+    'The AI could not produce a resume that passes the fact checks',
   );
 }
 
@@ -132,19 +117,48 @@ export function createTailorService({
   llm,
   jobPosting,
 }: TailorDeps) {
+  const summaryWriter = createSummaryService({ llm });
+
   return {
     async tailor(rawJobDescription: string): Promise<TailorResult> {
       const posting = await jobPosting.prepare(rawJobDescription);
       const jobDescription = posting.text;
       const master = await masterResume.get();
 
-      const { tailored, warnings } = await runTailoring(
+      const { tailored: modelOutput, warnings } = await runTailoring(
         master,
         jobDescription,
-        llm
+        llm,
       );
 
+      // Headline and summary: written for this job, fact-checked, with a safe fallback.
+      const signals = getJobSignals(posting);
+      const written = await summaryWriter.write(master, posting, signals);
+
+      const tailored: Tailorable = {
+        ...modelOutput,
+        headline: written.headline,
+        summary: written.summary,
+        skills: orderSkillsForJob(modelOutput.skills, signals.skills),
+      };
+
       buildResume(master, tailored); // final integrity check on the merged document
+
+      const allWarnings: Finding[] =
+        written.source === 'ai'
+          ? warnings
+          : [
+              ...warnings,
+              {
+                severity: 'warning' as const,
+                rule: 'summary-scope' as const,
+                path: 'summary',
+                message:
+                  written.source === 'reordered'
+                    ? `The AI summary did not pass the fact checks, so your own summary sentences were reordered for this job. Reason: ${written.reason}`
+                    : `The AI summary did not pass the fact checks, so your original summary was kept. Reason: ${written.reason}`,
+              },
+            ];
 
       const gaps: GapsReport | null = posting.requirements
         ? computeGaps(posting.requirements, master)
@@ -156,11 +170,16 @@ export function createTailorService({
         tailored,
         diff: diffTailorable(master.tailorable, tailored),
         gaps,
-        warnings,
+        warnings: allWarnings,
         fit,
+        summaryInfo: {
+          source: written.source,
+          focus: signals.focus,
+          aiHeavy: signals.aiHeavy,
+        },
         suggestedFileName: suggestFileName(
           master.locked.basics.fullName,
-          posting.company
+          posting.company,
         ),
         posting: {
           title: posting.title,

@@ -30,8 +30,6 @@ import { createJobsController } from './controllers/jobs-controller';
 import { createJobsRouter } from './routes/jobs-routes';
 import { createScheduler } from './services/scheduler';
 
-console.log('createApp v2 with jobs router');
-
 export function createApp() {
   const pdfService = createPdfService();
   const app = express();
