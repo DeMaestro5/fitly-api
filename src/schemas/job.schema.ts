@@ -36,6 +36,7 @@ export const SourceJobSchema = z.object({
   tags: z.array(z.string()),
   descriptionText: z.string(),
   postedAt: z.string().nullable(),
+  applyEmail: z.string().max(254).nullish(),
 });
 
 // What Fitly stores: source facts plus fields Fitly owns.
@@ -55,5 +56,5 @@ export type Job = z.infer<typeof JobSchema>;
 
 export const makeJobId = (
   source: JobSourceId,
-  sourceId: string | number
+  sourceId: string | number,
 ): string => `${source}:${sourceId}`;

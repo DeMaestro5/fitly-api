@@ -23,17 +23,18 @@ export function upsertJobs(jobs: SourceJob[], seenAt: string): UpsertResult {
   const exists = db.prepare('SELECT 1 FROM jobs WHERE id = ?');
   const upsert = db.prepare(`
     INSERT INTO jobs (
-      id, source, source_url, apply_url, title, company, location, region_note, remote_type,
+      id, source, source_url, apply_url, apply_email, title, company, location, region_note, remote_type,
       employment_type, salary_text, tags, description_text, posted_at,
       first_seen_at, last_seen_at, dedupe_key
     ) VALUES (
-      @id, @source, @sourceUrl, @applyUrl, @title, @company, @location, @regionNote, @remoteType,
+      @id, @source, @sourceUrl, @applyUrl, @applyEmail, @title, @company, @location, @regionNote, @remoteType,
       @employmentType, @salaryText, @tags, @descriptionText, @postedAt,
       @seenAt, @seenAt, @dedupeKey
     )
     ON CONFLICT(id) DO UPDATE SET
       source_url = excluded.source_url,
       apply_url = excluded.apply_url,
+      apply_email = excluded.apply_email,
       title = excluded.title,
       company = excluded.company,
       location = excluded.location,
@@ -58,6 +59,7 @@ export function upsertJobs(jobs: SourceJob[], seenAt: string): UpsertResult {
       upsert.run({
         ...job,
         tags: JSON.stringify(job.tags),
+        applyEmail: job.applyEmail ?? null, // adapters that have no email leave it out
         seenAt,
         dedupeKey: dedupeKey(job),
       });
@@ -278,6 +280,7 @@ export interface JobListItem {
   notes: string | null;
   expired: boolean;
   duplicateOf: string | null;
+  applyEmail: string | null;
 }
 
 // The list leaves out the description (it is big); the detail view includes it.
@@ -318,9 +321,10 @@ interface JobRow {
   expired: number;
   duplicate_of: string | null;
   description_text?: string | null;
+  apply_email: string | null;
 }
 
-const LIST_COLUMNS = `id, source, source_url, apply_url, title, company, location, region_note,
+const LIST_COLUMNS = `id, source, source_url, apply_url, apply_email, title, company, location, region_note,
 remote_type, employment_type, salary_text, tags, posted_at, first_seen_at, 
 last_seen_at, score, matched, status, notes, expired, duplicate_of`;
 
@@ -378,6 +382,7 @@ function toJobListItem(row: JobRow): JobListItem {
     notes: row.notes,
     expired: row.expired === 1,
     duplicateOf: row.duplicate_of,
+    applyEmail: row.apply_email,
   };
 }
 

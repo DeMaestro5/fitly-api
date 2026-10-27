@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -44,15 +44,27 @@ CREATE TABLE IF NOT EXISTS source_runs (
   duration_ms INTEGER NOT NULL
 );
 `;
+const MIGRATION_V2 = `ALTER TABLE jobs ADD COLUMN apply_email TEXT;`;
 
 let db: Database.Database | null = null;
+
+// The version number can get ahead of the real table (for example when a server restarts
+// halfway through an edit), so look at the actual columns.
+function hasColumn(
+  database: Database.Database,
+  table: string,
+  column: string,
+): boolean {
+  const columns = database.pragma(`table_info(${table})`) as { name: string }[];
+  return columns.some((c) => c.name === column);
+}
 
 function migrate(database: Database.Database): void {
   const current = database.pragma('user_version', { simple: true }) as number;
   if (current < 1) database.exec(SCHEMA_V1);
+  if (!hasColumn(database, 'jobs', 'apply_email')) database.exec(MIGRATION_V2);
   database.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
-
 export function getDb(): Database.Database {
   if (db) return db;
   const dbPath = process.env.FITLY_DB_PATH
