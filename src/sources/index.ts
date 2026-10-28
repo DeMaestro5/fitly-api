@@ -6,6 +6,7 @@ import { createRemotiveSource } from './remotive-source';
 import type { JobSource } from './source.type';
 import { createWwrSource } from './wwr-source';
 import { createHnSource } from './hn-source';
+import { createBoardsSource } from './boards-source';
 
 export function buildSources(
   options: { himalayasApiKey?: string } = {},
@@ -18,5 +19,6 @@ export function buildSources(
     createRemotiveSource(),
     createArbeitnowSource(),
     createHnSource(),
+    createBoardsSource(),
   ];
 }

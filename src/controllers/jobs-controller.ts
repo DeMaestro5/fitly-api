@@ -55,6 +55,7 @@ export function createJobsController(service: JobsService) {
 
     async refresh(req: Request, res: Response, next: NextFunction) {
       const parsed = RefreshQuerySchema.safeParse(req.query);
+      console.log('Sources- phantom');
       if (!parsed.success) {
         res.status(400).json({
           error: 'Invalid query parameter',
@@ -63,7 +64,9 @@ export function createJobsController(service: JobsService) {
         return;
       }
       try {
+        console.log('Sources- breaker ');
         const reports = await service.refresh(parsed.data);
+        console.log('Sources- shooter');
         res.json({ reports });
       } catch (error) {
         if (error instanceof UnknownSourceError) {

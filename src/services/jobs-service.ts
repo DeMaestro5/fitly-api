@@ -44,9 +44,14 @@ export function createJobsService(deps: { sources: JobSource[] }) {
       source?: JobSourceId;
       force: boolean;
     }): Promise<RefreshReport[]> {
+      console.log('Sources- Entered');
       const selected = options.source
         ? sources.filter((s) => s.id === options.source)
         : sources;
+
+      console.log(selected);
+
+      console.log('Source- Filtered');
 
       if (selected.length === 0) {
         throw new UnknownSourceError(options.source ?? '(none)');
