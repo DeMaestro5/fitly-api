@@ -12,11 +12,34 @@ import {
 import { JobSourceId } from '../schemas/job.schema';
 import { JobSource } from '../sources/source.type';
 import { refreshAll, RefreshReport } from './jobs-refresh-service';
+import type { MasterResume } from '../schemas/resume.schema';
+import type { EmailDraft, EmailService } from './email-service';
 
 export class UnknownSourceError extends Error {
   constructor(source: string) {
     super(`No adapter is configured for source "${source}"`);
     this.name = 'UnknownSourceError';
+  }
+}
+
+export class JobNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Job "${id}" not found`);
+    this.name = 'JobNotFoundError';
+  }
+}
+
+export class NoApplyEmailError extends Error {
+  constructor() {
+    super('This job has no apply email, so no email can be drafted');
+    this.name = 'NoApplyEmailError';
+  }
+}
+
+export class MasterResumeMissingError extends Error {
+  constructor() {
+    super('No master resume is saved yet');
+    this.name = 'MasterResumeMissingError';
   }
 }
 
@@ -31,8 +54,15 @@ export interface SourceOverview {
   visibleJobs: number;
 }
 
-export function createJobsService(deps: { sources: JobSource[] }) {
-  const { sources } = deps;
+export function createJobsService(deps: {
+  sources: JobSource[];
+  emailService: EmailService;
+  loadMasterResume: () =>
+    | MasterResume
+    | undefined
+    | Promise<MasterResume | undefined>;
+}) {
+  const { sources, emailService, loadMasterResume } = deps;
 
   return {
     list: (filters: JobFilters): JobListResults => listJobs(filters),
@@ -44,19 +74,26 @@ export function createJobsService(deps: { sources: JobSource[] }) {
       source?: JobSourceId;
       force: boolean;
     }): Promise<RefreshReport[]> {
-      console.log('Sources- Entered');
       const selected = options.source
         ? sources.filter((s) => s.id === options.source)
         : sources;
-
-      console.log(selected);
-
-      console.log('Source- Filtered');
 
       if (selected.length === 0) {
         throw new UnknownSourceError(options.source ?? '(none)');
       }
       return refreshAll(selected, { force: options.force });
+    },
+
+    async draftEmail(id: string): Promise<EmailDraft & { to: string }> {
+      const job = getJob(id);
+      if (!job) throw new JobNotFoundError(id);
+      if (!job.applyEmail) throw new NoApplyEmailError();
+
+      const master = await loadMasterResume();
+      if (!master) throw new MasterResumeMissingError();
+
+      const draft = await emailService.write(master, job);
+      return { to: job.applyEmail, ...draft };
     },
 
     sources(): SourceOverview[] {

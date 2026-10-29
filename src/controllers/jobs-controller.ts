@@ -4,7 +4,14 @@ import {
   PatchJobBodySchema,
   RefreshQuerySchema,
 } from '../schemas/jobs-api.schema';
-import { JobsService, UnknownSourceError } from '../services/jobs-service';
+import {
+  JobNotFoundError,
+  JobsService,
+  MasterResumeMissingError,
+  NoApplyEmailError,
+  UnknownSourceError,
+} from '../services/jobs-service';
+import { EmailDraftError } from '../services/email-service';
 
 export function createJobsController(service: JobsService) {
   return {
@@ -55,7 +62,6 @@ export function createJobsController(service: JobsService) {
 
     async refresh(req: Request, res: Response, next: NextFunction) {
       const parsed = RefreshQuerySchema.safeParse(req.query);
-      console.log('Sources- phantom');
       if (!parsed.success) {
         res.status(400).json({
           error: 'Invalid query parameter',
@@ -64,13 +70,34 @@ export function createJobsController(service: JobsService) {
         return;
       }
       try {
-        console.log('Sources- breaker ');
         const reports = await service.refresh(parsed.data);
-        console.log('Sources- shooter');
         res.json({ reports });
       } catch (error) {
         if (error instanceof UnknownSourceError) {
           res.status(400).json({ error: error.message });
+          return;
+        }
+        next(error);
+      }
+    },
+    async draftEmail(req: Request, res: Response, next: NextFunction) {
+      try {
+        const draft = await service.draftEmail(String(req.params.id));
+        res.json(draft);
+      } catch (error) {
+        if (error instanceof JobNotFoundError) {
+          res.status(404).json({ error: error.message });
+          return;
+        }
+        if (
+          error instanceof NoApplyEmailError ||
+          error instanceof MasterResumeMissingError
+        ) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
+        if (error instanceof EmailDraftError) {
+          res.status(502).json({ error: error.message });
           return;
         }
         next(error);

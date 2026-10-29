@@ -94,7 +94,8 @@ export function checkEmailDraft(input: EmailCheckInput): string[] {
   }
 
   // Facts: every number must exist in the master resume (years, percentages).
-  const numbers = body.match(/\d+(?:[.,]\d+)?/g) ?? [];
+  const numbers =
+    body.match(/(?<![A-Za-z0-9])\d+(?:[.,]\d+)?(?![A-Za-z0-9])/g) ?? [];
   const unknownNumbers = numbers.filter((n) => !containsTerm(resumeText, n));
   if (unknownNumbers.length > 0) {
     problems.push(

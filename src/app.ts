@@ -29,6 +29,7 @@ import { createJobsService } from './services/jobs-service';
 import { createJobsController } from './controllers/jobs-controller';
 import { createJobsRouter } from './routes/jobs-routes';
 import { createScheduler } from './services/scheduler';
+import { createEmailService } from './services/email-service';
 
 export function createApp() {
   const pdfService = createPdfService();
@@ -60,7 +61,12 @@ export function createApp() {
   const renderController = createRenderController(renderService);
 
   const sources = buildSources(); // if try-refresh passes an API key, pass the same one here
-  const jobsService = createJobsService({ sources });
+  const emailService = createEmailService({ llm, vocabulary: [] });
+  const jobsService = createJobsService({
+    sources,
+    emailService,
+    loadMasterResume: () => masterResumeService.get(),
+  });
 
   const importService = createResumeImportService({
     complete: createGroqComplete(),

@@ -9,6 +9,7 @@ export function createJobsRouter(controller: JobsController) {
   router.post('/refresh', controller.refresh);
   router.get('/:id', controller.get);
   router.patch('/:id', controller.update);
+  router.post('/:id/email', controller.draftEmail);
 
   return router;
 }
