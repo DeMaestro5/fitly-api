@@ -56,7 +56,7 @@ Return ONLY a JSON object: {"subject": string, "body": string}`;
 
   const user = `<job>
 Title: ${job.title}
-Company: ${job.company === 'Location' ? 'not stated (do not name a company)' : job.company}
+Company: ${/^(?:location|unknown company)$/i.test(job.company) ? 'not stated (do not name a company)' : job.company}
 Tags: ${job.tags.join(', ') || 'none'}
 Description:
 ${job.descriptionText.slice(0, DESCRIPTION_LIMIT)}

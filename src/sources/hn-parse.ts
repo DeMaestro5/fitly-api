@@ -239,6 +239,7 @@ function readHeader(header: string): HeaderInfo {
   let salaryText: string | null = null;
 
   for (const part of structured ? parts.slice(1) : []) {
+    if (/^https?:\/\//i.test(part)) continue; // a link is not a role or a location
     if (isRolePart(part)) {
       roles.push(part);
       continue;
@@ -269,6 +270,45 @@ function readHeader(header: string): HeaderInfo {
       ) ?? null;
   }
   return { structured, company, roles, locationText, salaryText };
+}
+
+export const UNKNOWN_COMPANY = 'Unknown company';
+
+// Some posts start with a field label ("Location: Remote ...") that is not a company.
+const PLACEHOLDER_COMPANY =
+  /^(?:location|locations|remote|hiring|role|roles|position|company|job|jobs|apply|onsite|hybrid|full[- ]?time|part[- ]?time)$/i;
+
+// Hosts that say nothing about the company (personal sites, forms, job boards).
+const GENERIC_HOSTS =
+  /(?:^|\.)(?:vercel\.app|netlify\.app|github\.io|notion\.site|notion\.so|linktr\.ee|google\.com|forms\.gle|airtable\.com|typeform\.com|ycombinator\.com|greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|wellfound\.com|linkedin\.com|calendly\.com|bit\.ly)$/i;
+
+function companyFromLabels(chunks: string[]): string | null {
+  for (const chunk of chunks.slice(0, 10)) {
+    const match =
+      /^(?:company(?: name)?|employer|organi[sz]ation)\s*[:\-–]\s*(.{2,100})$/i.exec(
+        chunk,
+      );
+    if (!match) continue;
+    const name = splitCompany(match[1]).name;
+    if (name && !PLACEHOLDER_COMPANY.test(name)) return name;
+  }
+  return null;
+}
+
+function companyFromUrl(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    if (GENERIC_HOSTS.test(host)) return null;
+    const parts = host.split('.');
+    const second = parts[parts.length - 2];
+    const label =
+      parts.length > 2 && /^(?:co|com|org|net|ac|gov)$/i.test(second)
+        ? parts[parts.length - 3]
+        : second;
+    return label ? titleCase(label) : null;
+  } catch {
+    return null;
+  }
 }
 
 /* -------------------------- remote type and place -------------------------- */
@@ -372,16 +412,25 @@ export function parseHiringPost(input: HnPostInput): SourceJob | null {
 
   const employment = EMPLOYMENT_RE.exec(header);
   const sourceUrl = `https://news.ycombinator.com/item?id=${input.id}`;
+  // Email-only posts have no link, so "Open post" falls back to the HN comment itself.
+  const applyUrl = pickApplyUrl(extractLinks(input.html)) ?? sourceUrl;
+
+  // "Location" and similar labels are not company names: look for a "Company:" line,
+  // then the apply link's domain, then admit we do not know.
+  let company = info.company;
+  if (PLACEHOLDER_COMPANY.test(company)) {
+    company =
+      companyFromLabels(chunks) ?? companyFromUrl(applyUrl) ?? UNKNOWN_COMPANY;
+  }
 
   return SourceJobSchema.parse({
     id: makeJobId('hn', input.id),
     source: 'hn',
     sourceUrl,
-    // Email-only posts have no link, so "Open post" falls back to the HN comment itself.
-    applyUrl: pickApplyUrl(extractLinks(input.html)) ?? sourceUrl,
+    applyUrl,
     applyEmail: pickEmail(plain),
     title,
-    company: info.company,
+    company,
     location,
     regionNote,
     remoteType,

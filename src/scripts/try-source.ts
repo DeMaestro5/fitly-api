@@ -5,6 +5,7 @@ import { createWwrSource } from '../sources/wwr-source';
 import { createJobicySource } from '../sources/jobicy-source';
 import { createRemotiveSource } from '../sources/remotive-source';
 import { createArbeitnowSource } from '../sources/arbeitnow-source';
+import { createHnSource } from '../sources/hn-source';
 
 const factories: Record<string, () => JobSource> = {
   himalayas: () => createHimalayasSource(process.env.HIMALAYAS_API_KEY),
@@ -13,6 +14,7 @@ const factories: Record<string, () => JobSource> = {
   jobicy: () => createJobicySource(),
   remotive: () => createRemotiveSource(),
   arbeitnow: () => createArbeitnowSource(),
+  hn: () => createHnSource(),
 };
 
 (async () => {
@@ -21,8 +23,8 @@ const factories: Record<string, () => JobSource> = {
   if (!factory) {
     console.error(
       `Usage: tsx src/scripts/try-source.ts <${Object.keys(factories).join(
-        '|'
-      )}>`
+        '|',
+      )}>`,
     );
     process.exit(1);
   }
@@ -45,6 +47,12 @@ const factories: Record<string, () => JobSource> = {
       description: j.descriptionText.slice(0, 200),
     });
   }
+  console.log('\nYC jobs:');
+  for (const j of jobs.filter((j) => j.tags.some((t) => t.startsWith('YC')))) {
+    console.log(
+      `${j.company} | ${j.title} | ${j.location ?? '-'} | ${j.remoteType} | ${j.applyUrl}`,
+    );
+  }
 
   const withNote = jobs.filter((j) => j.regionNote !== null).length;
   console.log({
@@ -55,7 +63,7 @@ const factories: Record<string, () => JobSource> = {
     onsite: jobs.filter((j) => j.remoteType === 'onsite').length,
     withVisaTag: jobs.filter((j) => j.tags.includes('Visa sponsorship')).length,
     endsWithSpamLine: jobs.filter((j) =>
-      /Please mention the word/i.test(j.descriptionText)
+      /Please mention the word/i.test(j.descriptionText),
     ).length,
   });
 })().catch((e) => {
