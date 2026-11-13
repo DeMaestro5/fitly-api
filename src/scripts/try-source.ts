@@ -6,6 +6,7 @@ import { createJobicySource } from '../sources/jobicy-source';
 import { createRemotiveSource } from '../sources/remotive-source';
 import { createArbeitnowSource } from '../sources/arbeitnow-source';
 import { createHnSource } from '../sources/hn-source';
+import { createMercorSource } from '../sources/mercor-source';
 
 const factories: Record<string, () => JobSource> = {
   himalayas: () => createHimalayasSource(process.env.HIMALAYAS_API_KEY),
@@ -15,6 +16,7 @@ const factories: Record<string, () => JobSource> = {
   remotive: () => createRemotiveSource(),
   arbeitnow: () => createArbeitnowSource(),
   hn: () => createHnSource(),
+  mercor: () => createMercorSource(),
 };
 
 (async () => {

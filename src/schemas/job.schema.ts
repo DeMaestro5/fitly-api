@@ -9,6 +9,7 @@ export const JOB_SOURCES = [
   'arbeitnow',
   'hn',
   'ats',
+  'mercor',
 ] as const;
 
 export const JobSourceSchema = z.enum(JOB_SOURCES);

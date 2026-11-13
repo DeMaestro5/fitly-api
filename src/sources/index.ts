@@ -7,6 +7,7 @@ import type { JobSource } from './source.type';
 import { createWwrSource } from './wwr-source';
 import { createHnSource } from './hn-source';
 import { createBoardsSource } from './boards-source';
+import { createMercorSource } from './mercor-source';
 
 export function buildSources(
   options: { himalayasApiKey?: string } = {},
@@ -20,5 +21,6 @@ export function buildSources(
     createArbeitnowSource(),
     createHnSource(),
     createBoardsSource(),
+    createMercorSource(),
   ];
 }
