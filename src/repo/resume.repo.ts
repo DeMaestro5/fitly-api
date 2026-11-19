@@ -1,42 +1,62 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { ZodError } from 'zod';
 import {
   MasterResumeSchema,
   type MasterResume,
 } from '../schemas/resume.schema';
 import { AppError } from '../utils/AppError';
+import { query } from './db';
 
 export interface ResumeRepository {
-  get(): Promise<MasterResume | null>;
-  save(resume: MasterResume): Promise<void>;
+  get(userId: string): Promise<MasterResume | null>;
+  save(userId: string, resume: MasterResume): Promise<void>;
+  listAll(): Promise<{ userId: string; resume: MasterResume }[]>;
 }
 
-export function createFileResumeRepository(filePath: string): ResumeRepository {
-  async function get(): Promise<MasterResume | null> {
-    let raw: string;
-    try {
-      raw = await readFile(filePath, 'utf8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw err;
+function parseStored(data: unknown): MasterResume {
+  try {
+    return MasterResumeSchema.parse(data);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new AppError(500, 'Stored master resume is corrupted');
     }
-    try {
-      return MasterResumeSchema.parse(JSON.parse(raw));
-    } catch (err) {
-      if (err instanceof ZodError || err instanceof SyntaxError) {
-        throw new AppError(500, 'Stored master resume is corrupted');
+    throw err;
+  }
+}
+
+export function createResumeRepository(): ResumeRepository {
+  return {
+    async get(userId) {
+      const rows = await query<{ data: unknown }>(
+        'SELECT data FROM master_resumes WHERE user_id = $1',
+        [userId],
+      );
+      return rows[0] ? parseStored(rows[0].data) : null;
+    },
+
+    async save(userId, resume) {
+      await query(
+        `INSERT INTO master_resumes (user_id, data) VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET data = excluded.data, updated_at = now()`,
+        [userId, JSON.stringify(resume)],
+      );
+    },
+
+    async listAll() {
+      const rows = await query<{ userId: string; data: unknown }>(
+        'SELECT user_id AS "userId", data FROM master_resumes',
+      );
+      const result: { userId: string; resume: MasterResume }[] = [];
+      for (const row of rows) {
+        try {
+          result.push({ userId: row.userId, resume: parseStored(row.data) });
+        } catch (err) {
+          console.warn(
+            `[resume] skipping corrupted resume for ${row.userId}`,
+            err,
+          );
+        }
       }
-      throw err;
-    }
-  }
-
-  async function save(resume: MasterResume): Promise<void> {
-    await mkdir(path.dirname(filePath), { recursive: true });
-    const tempPath = `${filePath}.tmp`;
-    await writeFile(tempPath, JSON.stringify(resume, null, 2), 'utf8');
-    await rename(tempPath, filePath); // atomic swap: a crash mid-write can't leave half a file
-  }
-
-  return { get, save };
+      return result;
+    },
+  };
 }

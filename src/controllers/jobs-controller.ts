@@ -12,10 +12,11 @@ import {
   UnknownSourceError,
 } from '../services/jobs-service';
 import { EmailDraftError } from '../services/email-service';
+import { userIdOf } from '../middleware/auth';
 
 export function createJobsController(service: JobsService) {
   return {
-    list(req: Request, res: Response) {
+    async list(req: Request, res: Response) {
       const parsed = ListJobsQuerySchema.safeParse(req.query);
       if (!parsed.success) {
         res.status(400).json({
@@ -26,7 +27,7 @@ export function createJobsController(service: JobsService) {
       }
 
       const filters = parsed.data;
-      const { items, total } = service.list(filters);
+      const { items, total } = await service.list(userIdOf(req), filters);
       res.json({
         items,
         total,
@@ -35,8 +36,8 @@ export function createJobsController(service: JobsService) {
       });
     },
 
-    get(req: Request, res: Response) {
-      const job = service.get(String(req.params.id));
+    async get(req: Request, res: Response) {
+      const job = await service.get(userIdOf(req), String(req.params.id));
       if (!job) {
         res.status(404).json({ error: 'Job not found' });
         return;
@@ -44,7 +45,7 @@ export function createJobsController(service: JobsService) {
       res.json(job);
     },
 
-    update(req: Request, res: Response) {
+    async update(req: Request, res: Response) {
       const parsed = PatchJobBodySchema.safeParse(req.body ?? {});
       if (!parsed.success) {
         res
@@ -52,7 +53,11 @@ export function createJobsController(service: JobsService) {
           .json({ error: 'Invalid body', issues: parsed.error.issues });
         return;
       }
-      const job = service.update(String(req.params.id), parsed.data);
+      const job = await service.update(
+        userIdOf(req),
+        String(req.params.id),
+        parsed.data,
+      );
       if (!job) {
         res.status(404).json({ error: 'job not found' });
         return;
@@ -80,9 +85,13 @@ export function createJobsController(service: JobsService) {
         next(error);
       }
     },
+
     async draftEmail(req: Request, res: Response, next: NextFunction) {
       try {
-        const draft = await service.draftEmail(String(req.params.id));
+        const draft = await service.draftEmail(
+          userIdOf(req),
+          String(req.params.id),
+        );
         res.json(draft);
       } catch (error) {
         if (error instanceof JobNotFoundError) {
@@ -104,8 +113,8 @@ export function createJobsController(service: JobsService) {
       }
     },
 
-    sources(_req: Request, res: Response) {
-      res.json({ sources: service.sources() });
+    async sources(_req: Request, res: Response) {
+      res.json({ sources: await service.sources() });
     },
   };
 }

@@ -1,10 +1,12 @@
-import express from 'express';
+import express, { Router, type RequestHandler } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import path from 'node:path';
+import cookieParser from 'cookie-parser';
+import { env } from './config/env';
 import { errorHandler, notFound } from './middleware/errorHandler';
+import { requireAuth, userIdOf } from './middleware/auth';
 import { createMasterResumeController } from './controllers/masterResume';
-import { createFileResumeRepository } from './repo/resume.repo';
+import { createResumeRepository } from './repo/resume.repo';
 import { createMasterResumeRouter } from './routes/master-resume';
 import { createMasterResumeService } from './services/masterResume';
 import { createTailorService } from './services/tailor-service';
@@ -30,65 +32,117 @@ import { createJobsController } from './controllers/jobs-controller';
 import { createJobsRouter } from './routes/jobs-routes';
 import { createScheduler } from './services/scheduler';
 import { createEmailService } from './services/email-service';
+import { createAuthService } from './services/auth-service';
+import { createAuthController } from './controllers/auth-controller';
+import { createAuthRouter } from './routes/auth-routes';
+import { scoreUser } from './services/job-scoring-service';
 
 export function createApp() {
   const pdfService = createPdfService();
   const app = express();
 
+  // Behind Render's proxy, req.ip is the proxy unless we trust its forwarded header.
+  if (env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
   app.use(helmet());
-  app.use(cors());
+  app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
 
-  const resumeRepo = createFileResumeRepository(
-    path.resolve(process.cwd(), 'data/master-resume.json'),
-  );
-  const masterResumeService = createMasterResumeService(resumeRepo);
+  const resumeRepo = createResumeRepository();
+  const masterResumeService = createMasterResumeService(resumeRepo, {
+    // A new or edited resume changes job scores, so re-score for that user right away.
+    onSaved: (userId, resume) => {
+      void scoreUser(userId, resume).catch((err) =>
+        console.warn('[scoring] failed after resume save:', err),
+      );
+    },
+  });
   const llm = createGroqService();
-  const tailorService = createTailorService({
-    masterResume: masterResumeService,
-    llm,
-    jobPosting: createJobPostingService(llm),
+  const jobPosting = createJobPostingService(llm);
+  const importService = createResumeImportService({
+    complete: createGroqComplete(),
   });
-
-  const renderService = createRenderService({
-    masterResume: masterResumeService,
-    pdf: pdfService,
-  });
-  const renderController = createRenderController(renderService);
 
   const sources = buildSources(); // if try-refresh passes an API key, pass the same one here
   const emailService = createEmailService({ llm, vocabulary: [] });
   const jobsService = createJobsService({
     sources,
     emailService,
-    loadMasterResume: () => masterResumeService.get(),
+    loadMasterResume: (userId) => resumeRepo.get(userId),
   });
 
-  const importService = createResumeImportService({
-    complete: createGroqComplete(),
-  });
+  // These services only need "the signed-in user's master resume", so each request
+  // gets copies bound to that user. The service files themselves stay unchanged.
+  const perUser =
+    (build: (userId: string) => Router): RequestHandler =>
+    (req, res, next) =>
+      build(userIdOf(req))(req, res, next);
 
+  const buildRenderService = (userId: string) =>
+    createRenderService({
+      masterResume: masterResumeService.forUser(userId),
+      pdf: pdfService,
+    });
+
+  // Public: register, login, refresh, logout.
   app.use(
-    '/api/master-resume',
-    createMasterResumeDraftRouter(
-      createMasterResumeDraftController(importService, renderService),
-    ),
+    '/api/auth',
+    createAuthRouter(createAuthController(createAuthService())),
   );
 
+  // Everything mounted below this line requires a valid access token.
+  app.use('/api', requireAuth);
+
   app.use(
     '/api/master-resume',
-    createMasterResumeRouter(createMasterResumeController(masterResumeService)),
+    perUser((userId) =>
+      createMasterResumeDraftRouter(
+        createMasterResumeDraftController(
+          importService,
+          buildRenderService(userId),
+        ),
+      ),
+    ),
+  );
+  app.use(
+    '/api/master-resume',
+    perUser((userId) =>
+      createMasterResumeRouter(
+        createMasterResumeController(masterResumeService.forUser(userId)),
+      ),
+    ),
   );
   app.use(
     '/api/tailor',
-    createTailorRouter(createTailorController(tailorService)),
+    perUser((userId) =>
+      createTailorRouter(
+        createTailorController(
+          createTailorService({
+            masterResume: masterResumeService.forUser(userId),
+            llm,
+            jobPosting,
+          }),
+        ),
+      ),
+    ),
   );
-  app.use('/api/render', createRenderRouter(renderController));
-  app.use('/api/templates', createTemplatesRouter(renderController));
+  app.use(
+    '/api/render',
+    perUser((userId) =>
+      createRenderRouter(createRenderController(buildRenderService(userId))),
+    ),
+  );
+  app.use(
+    '/api/templates',
+    perUser((userId) =>
+      createTemplatesRouter(createRenderController(buildRenderService(userId))),
+    ),
+  );
   app.use('/api/jobs', createJobsRouter(createJobsController(jobsService)));
 
   const scheduler = createScheduler({ sources });
@@ -101,7 +155,7 @@ export function createApp() {
     close: async () => {
       scheduler.stop();
       try {
-        closeDb(); // lets SQLite finish writing cleanly
+        await closeDb(); // waits for in-flight queries, then closes the pool
       } finally {
         await pdfService.close();
       }

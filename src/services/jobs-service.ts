@@ -57,18 +57,22 @@ export interface SourceOverview {
 export function createJobsService(deps: {
   sources: JobSource[];
   emailService: EmailService;
-  loadMasterResume: () =>
-    | MasterResume
-    | undefined
-    | Promise<MasterResume | undefined>;
+  loadMasterResume: (
+    userId: string,
+  ) => Promise<MasterResume | null | undefined>;
 }) {
   const { sources, emailService, loadMasterResume } = deps;
 
   return {
-    list: (filters: JobFilters): JobListResults => listJobs(filters),
-    get: (id: string): JobDetail | undefined => getJob(id),
-    update: (id: string, patch: JobPatch): JobDetail | undefined =>
-      updateJob(id, patch),
+    list: (userId: string, filters: JobFilters): Promise<JobListResults> =>
+      listJobs(userId, filters),
+    get: (userId: string, id: string): Promise<JobDetail | undefined> =>
+      getJob(userId, id),
+    update: (
+      userId: string,
+      id: string,
+      patch: JobPatch,
+    ): Promise<JobDetail | undefined> => updateJob(userId, id, patch),
 
     async refresh(options: {
       source?: JobSourceId;
@@ -84,21 +88,24 @@ export function createJobsService(deps: {
       return refreshAll(selected, { force: options.force });
     },
 
-    async draftEmail(id: string): Promise<EmailDraft & { to: string }> {
-      const job = getJob(id);
+    async draftEmail(
+      userId: string,
+      id: string,
+    ): Promise<EmailDraft & { to: string }> {
+      const job = await getJob(userId, id);
       if (!job) throw new JobNotFoundError(id);
       if (!job.applyEmail) throw new NoApplyEmailError();
 
-      const master = await loadMasterResume();
+      const master = await loadMasterResume(userId);
       if (!master) throw new MasterResumeMissingError();
 
       const draft = await emailService.write(master, job);
       return { to: job.applyEmail, ...draft };
     },
 
-    sources(): SourceOverview[] {
-      const runs = new Map(getRuns().map((run) => [run.source, run]));
-      const visible = countJobs().visibleBySource;
+    async sources(): Promise<SourceOverview[]> {
+      const runs = new Map((await getRuns()).map((run) => [run.source, run]));
+      const visible = (await countJobs()).visibleBySource;
       return sources.map((source) => {
         const run = runs.get(source.id);
         return {
