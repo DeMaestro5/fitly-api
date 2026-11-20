@@ -6,6 +6,7 @@ import {
   refreshRateLimit,
   registerRateLimit,
 } from '../middleware/rate-limit';
+import { env } from '../config/env';
 
 export function createAuthRouter(controller: AuthController) {
   const router = Router();
@@ -18,5 +19,8 @@ export function createAuthRouter(controller: AuthController) {
   router.post('/refresh', refreshRateLimit, controller.refresh);
   router.post('/logout', controller.logout);
   router.get('/me', requireAuth, controller.me);
+  router.get('/config', (_req, res) => {
+    res.json({ inviteRequired: Boolean(env.INVITE_CODE) });
+  });
   return router;
 }
